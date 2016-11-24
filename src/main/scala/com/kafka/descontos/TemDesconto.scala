@@ -63,7 +63,6 @@ object TemDesconto extends {
         Future(m)
       }).runWith(consumer.offsetCommitSink)
 
-      println("Test==================")
 
     } getOrElse {
       println("Do you know what you're doing? I don't think so!")
