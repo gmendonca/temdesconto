@@ -3,13 +3,10 @@ package com.kafka.descontos
 import akka.actor.ActorSystem
 import akka.stream.ActorMaterializer
 import akka.stream.scaladsl.Source
-import com.softwaremill.react.kafka.KafkaMessages.StringKafkaMessage
 import com.softwaremill.react.kafka.{ConsumerProperties, ReactiveKafka}
 import kafka.serializer.StringDecoder
 import org.json4s.DefaultFormats
-import org.reactivestreams.Publisher
 import org.json4s.native.JsonMethods._
-import org.json4s.native.Serialization._
 
 import scala.concurrent.Future
 import scala.util.{Failure, Success, Try}
@@ -25,7 +22,9 @@ object TemDesconto extends {
                     brokerList: String = "localhost:6667",
                     groupId: String = "",
                     discount: Double = 0.3,
-                    search: Seq[String] = List[String](""))
+                    search: Seq[String] = List[String](""),
+                    user: String = "",
+                    password: String = "")
 
   def main(args: Array[String]) {
 
@@ -48,7 +47,13 @@ object TemDesconto extends {
         c.copy(discount = x) } text "Minimum discount"
 
       opt[Seq[String]]('s', "search") action { (x, c) =>
-        c.copy(search = x) } text "Minimum discount"
+        c.copy(search = x) } text "Search terms divided by commas"
+
+      opt[String]('u', "user") action { (x, c) =>
+        c.copy(user = x) } text "Plat user"
+
+      opt[String]('p', "password") action { (x, c) =>
+        c.copy(password = x) } text "Plat password"
 
       help("help") text "prints this usage text"
     }
@@ -75,6 +80,10 @@ object TemDesconto extends {
 
       val raasUrl = "platform.chaordicsystems.com"
 
+      println("Starting")
+      println()
+      println("=====================================================================================")
+
       Source.fromPublisher(consumer.publisher).mapAsync(1)(m => {
         val json = parse(m.message())
 
@@ -83,17 +92,21 @@ object TemDesconto extends {
         Try(entity.children.foreach(x => if ((x \ "attribute").extract[String] == "price") {
 
           val oldValue = (x \ "oldValue").extractOrElse[String]((x \ "oldValue").extract[Double] toString) toFloat
+
           val newValue = (x \ "newValue").extractOrElse[String]((x \ "newValue").extract[Double] toString) toFloat
 
           if ((oldValue - newValue) >= config.discount * oldValue && oldValue > 0 && newValue > 0) {
 
             val apiKey = (json \ "apiKey").extract[String]
-            val version = (json \ "version").extract[String] toLowerCase
-            val productId = (json \ "productId").extract[String]
+
+            val (productId, version) = Try((json \ "productId").extract[String]) match {
+              case Success(v) => (v, "v2")
+              case Failure(ex) => ((json \ "productBusinessId").extract[String], "v1")
+            }
 
             val url = s"https://$raasUrl/raas/$version/clients/$apiKey/products/$productId"
 
-            val response:HttpResponse[String] = Http(url).auth(User.name, User.password).asString
+            val response:HttpResponse[String] = Http(url).auth(config.user, config.password).asString
 
             val product = parse(response.body)
 
@@ -115,7 +128,6 @@ object TemDesconto extends {
                 println()
                 println("=====================================================================================")
                 println()
-
               }
             }
           }
